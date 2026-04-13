@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Пятнашки - собери числа</title>
+    <style>
+        * {
+            user-select: none;
+            touch-action: manipulation;
+        }
+        body {
+            background: #1a472a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 10px;
+            font-family: 'Courier New', monospace;
+        }
+        .game-container {
+            background: #2c2c2c;
+            padding: 15px;
+            border-radius: 25px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+        canvas {
+            display: block;
+            margin: 0 auto;
+            border-radius: 12px;
+            background: #3a2a1a;
+            cursor: pointer;
+            box-shadow: 0 0 0 3px #ffaa44;
+        }
+        .info {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 15px;
+            color: #ffdd99;
+            font-weight: bold;
+            font-size: 1.2rem;
+            padding: 0 10px;
+        }
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 15px;
+        }
+        button {
+            background: #ffaa44;
+            border: none;
+            font-size: 1.2rem;
+            font-weight: bold;
+            padding: 8px 20px;
+            border-radius: 40px;
+            box-shadow: 0 3px 0 #a05e15;
+            transition: 0.05s linear;
+            touch-action: manipulation;
+            cursor: pointer;
+        }
+        button:active {
+            transform: translateY(2px);
+            box-shadow: 0 1px 0 #a05e15;
+        }
+        .restart {
+            background: #d64545;
+            color: white;
+        }
+        @media (max-width: 600px) {
+            .info { font-size: 1rem; }
+            button { padding: 6px 16px; font-size: 1rem; }
+        }
+    </style>
+</head>
+<body>
+<div>
+    <div class="game-container">
+        <canvas id="puzzleCanvas" width="400" height="400"></canvas>
+        <div class="info">
+            <span>🏆 Ходов: <span id="movesValue">0</span></span>
+            <span>🎯 Цель: 1..15 по порядку</span>
+        </div>
+        <div class="controls">
+            <button id="shuffleBtn">🔄 Перемешать</button>
+            <button id="restartBtn" class="restart">✨ Новая игра</button>
+        </div>
+        <div style="text-align: center; margin-top: 10px; font-size: 12px; color: #aaa;">
+            Нажми на плитку рядом с пустотой
+        </div>
+    </div>
+</div>
+
+<script>
+    (function(){
+        const canvas = document.getElementById('puzzleCanvas');
+        const ctx = canvas.getContext('2d');
+        const movesSpan = document.getElementById('movesValue');
+
+        const SIZE = 400;
+        const N = 4;               // 4x4
+        const CELL_SIZE = SIZE / N;
+        let board = [];
+        let emptyRow = 3, emptyCol = 3;   // пустая клетка в правом нижнем углу (15-я)
+        let moves = 0;
+        let gameWon = false;
+
+        // Инициализация доски (решенное состояние)
+        function initBoard() {
+            board = [];
+            let num = 1;
+            for (let i = 0; i < N; i++) {
+                board[i] = [];
+                for (let j = 0; j < N; j++) {
+                    if (i === N-1 && j === N-1) {
+                        board[i][j] = 0;   // пусто
+                    } else {
+                        board[i][j] = num++;
+                    }
+                }
+            }
+            emptyRow = N-1;
+            emptyCol = N-1;
+        }
+
+        // Перемешивание (честное, случайными ходами)
+        function shuffleBoard(stepCount = 200) {
+            for (let s = 0; s < stepCount; s++) {
+                let neighbors = [];
+                if (emptyRow > 0) neighbors.push({ row: emptyRow-1, col: emptyCol, dir: 'up' });
+                if (emptyRow < N-1) neighbors.push({ row: emptyRow+1, col: emptyCol, dir: 'down' });
+                if (emptyCol > 0) neighbors.push({ row: emptyRow, col: emptyCol-1, dir: 'left' });
+                if (emptyCol < N-1) neighbors.push({ row: emptyRow, col: emptyCol+1, dir: 'right' });
+                let random = neighbors[Math.floor(Math.random() * neighbors.length)];
+                // перемещаем выбранную плитку на пустое место
+                board[emptyRow][emptyCol] = board[random.row][random.col];
+                board[random.row][random.col] = 0;
+                emptyRow = random.row;
+                emptyCol = random.col;
+            }
+            moves = 0;
+            gameWon = false;
+            updateMovesDisplay();
+            drawBoard();
+        }
+
+        // Проверка победы
+        function checkWin() {
+            let expected = 1;
+            for (let i = 0; i < N; i++) {
+                for (let j = 0; j < N; j++) {
+                    if (i === N-1 && j === N-1) {
+                        if (board[i][j] !== 0) return false;
+                    } else {
+                        if (board[i][j] !== expected) return false;
+                        expected++;
+                    }
+                }
+            }
+            gameWon = true;
+            drawBoard();  // сразу перерисуем с сообщением
+            return true;
+        }
+
+        // Попытка переместить плитку по координатам (row, col)
+        // Возвращает true, если ход был сделан
+        function tryMoveTile(row, col) {
+            if (gameWon) return false;
+            // Проверяем, сосед ли с пустотой
+            if ((Math.abs(row - emptyRow) + Math.abs(col - emptyCol)) !== 1) return false;
+            // Меняем местами
+            board[emptyRow][emptyCol] = board[row][col];
+            board[row][col] = 0;
+            emptyRow = row;
+            emptyCol = col;
+            moves++;
+            updateMovesDisplay();
+            drawBoard();
+            checkWin();
+            return true;
+        }
+
+        // Обработчик клика по канвасу
+        function canvasClick(e) {
+            if (gameWon) return;
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            let clientX, clientY;
+            if (e.touches) {
+                // сенсорное событие
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+                e.preventDefault();
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+            let canvasX = (clientX - rect.left) * scaleX;
+            let canvasY = (clientY - rect.top) * scaleY;
+            if (canvasX >= 0 && canvasX < SIZE && canvasY >= 0 && canvasY < SIZE) {
+                const col = Math.floor(canvasX / CELL_SIZE);
+                const row = Math.floor(canvasY / CELL_SIZE);
+                tryMoveTile(row, col);
+            }
+        }
+
+        // Обновление счётчика ходов на экране
+        function updateMovesDisplay() {
+            movesSpan.innerText = moves;
+        }
+
+        // Отрисовка игрового поля
+        function drawBoard() {
+            ctx.clearRect(0, 0, SIZE, SIZE);
+            for (let i = 0; i < N; i++) {
+                for (let j = 0; j < N; j++) {
+                    let value = board[i][j];
+                    let x = j * CELL_SIZE;
+                    let y = i * CELL_SIZE;
+                    if (value === 0) {
+                        ctx.fillStyle = "#3a2a1a";
+                        ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+                        // рисуем легкую текстуру
+                        ctx.fillStyle = "#4a3a2a";
+                        ctx.fillRect(x+2, y+2, CELL_SIZE-4, CELL_SIZE-4);
+                    } else {
+                        // градиент для плиток
+                        let grad = ctx.createLinearGradient(x, y, x+CELL_SIZE, y+CELL_SIZE);
+                        grad.addColorStop(0, '#ffcc66');
+                        grad.addColorStop(1, '#ffaa33');
+                        ctx.fillStyle = grad;
+                        ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+                        ctx.fillStyle = "#8b5a2b";
+                        ctx.fillRect(x+2, y+2, CELL_SIZE-4, CELL_SIZE-4);
+                        ctx.fillStyle = "#ffffff";
+                        ctx.font = `bold ${CELL_SIZE * 0.4}px "Courier New", monospace`;
+                        ctx.textAlign = "center";
+                        ctx.textBaseline = "middle";
+                        ctx.fillStyle = "#2c2c2c";
+                        ctx.fillText(value, x + CELL_SIZE/2, y + CELL_SIZE/2);
+                        ctx.fillStyle = "#f0f0f0";
+                        ctx.fillText(value, x + CELL_SIZE/2 - 1, y + CELL_SIZE/2 - 1);
+                    }
+                }
+            }
+            // Рамка
+            ctx.strokeStyle = "#ffaa44";
+            ctx.lineWidth = 3;
+            ctx.strokeRect(0, 0, SIZE, SIZE);
+            
+            if (gameWon) {
+                ctx.font = "bold 28monospace";
+                ctx.fillStyle = "#ffffaa";
+                ctx.shadowBlur = 0;
+                ctx.fillText("ПОБЕДА!", SIZE/2-70, SIZE/2-30);
+                ctx.font = "16monospace";
+                ctx.fillStyle = "#ccffcc";
+                ctx.fillText("За " + moves + " ходов", SIZE/2-50, SIZE/2+20);
+            }
+        }
+
+        // Новая игра (решенная доска, потом можно перемешать)
+        function newGame() {
+            initBoard();
+            moves = 0;
+            gameWon = false;
+            updateMovesDisplay();
+            drawBoard();
+        }
+
+        // Перемешивание с сохранением счётчика ходов на 0
+        function shuffleGame() {
+            initBoard();
+            shuffleBoard(200);
+            moves = 0;
+            gameWon = false;
+            updateMovesDisplay();
+            drawBoard();
+        }
+
+        // События
+        canvas.addEventListener('click', canvasClick);
+        canvas.addEventListener('touchstart', canvasClick);
+        document.getElementById('shuffleBtn').addEventListener('click', () => shuffleGame());
+        document.getElementById('restartBtn').addEventListener('click', () => newGame());
+
+        // Старт
+        initBoard();
+        shuffleBoard(200);   // сразу перемешиваем для начала игры
+        moves = 0;
+        updateMovesDisplay();
+        drawBoard();
+    })();
+</script>
+</body>
+</html>
